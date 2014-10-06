@@ -75,17 +75,6 @@ module I18n
       end
     end
 
-    def self.custome_filtered_translations
-      x= {}.tap do |result|
-        translation_segments.each do |filename, translations|
-          translations.each do |x,y|
-            deep_merge!(result, {x => y}) if I18n.fallbacks[:"#{I18n.locale}"].include?(x.to_sym)
-          end
-        end
-      end
-      x
-    end
-
     def self.translation_segments
       if config? && config[:translations]
         configured_segments
