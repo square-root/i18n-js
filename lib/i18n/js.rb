@@ -109,6 +109,17 @@ module I18n
       end
     end
 
+    def self.custom_save(translations, file)
+      FileUtils.mkdir_p File.dirname(file)
+
+      File.open(file, "w+") do |f|
+        f << "//= require i18n/shims\n"
+        f << "//= require i18n\n"
+        f << %(I18n.translations = );
+        f << translations.to_json
+        f << %(;)
+      end
+    end
     def self.scoped_translations(scopes) # :nodoc:
       result = {}
 
