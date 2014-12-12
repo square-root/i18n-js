@@ -1,33 +1,34 @@
 require "i18n"
-require "FileUtils" unless defined?(FileUtils)
+require "fileutils"
+
+require "i18n/js/utils"
 
 module I18n
   module JS
-    if defined?(Rails)
+    require "i18n/js/dependencies"
+    require "i18n/js/fallback_locales"
+    if JS::Dependencies.rails?
       require "i18n/js/middleware"
       require "i18n/js/engine"
     end
 
-    # deep_merge by Stefan Rusterholz, see <http://www.ruby-forum.com/topic/142809>.
-    MERGER = proc do |key, v1, v2|
-      Hash === v1 && Hash === v2 ? v1.merge(v2, &MERGER) : v2
-    end
-
-    # Detect if Rails app has asset pipeline support.
-    #
-    def self.has_asset_pipeline?
-      Rails.configuration.respond_to?(:assets) && Rails.configuration.assets.enabled
-    end
+    DEFAULT_CONFIG_PATH = "config/i18n-js.yml"
+    DEFAULT_EXPORT_DIR_PATH = "public/javascripts"
 
     # The configuration file. This defaults to the `config/i18n-js.yml` file.
     #
-    def self.config_file
-      @config_file ||= "config/i18n-js.yml"
+    def self.config_file_path
+      @config_file_path ||= DEFAULT_CONFIG_PATH
+    end
+    def self.config_file_path=(new_path)
+      @config_file_path = new_path
     end
 
     # Export translations to JavaScript, considering settings
     # from configuration file
     def self.export
+      export_i18n_js
+
       translation_segments.each do |filename, translations|
         save(translations, filename)
       end
@@ -35,7 +36,10 @@ module I18n
 
     def self.segments_per_locale(pattern, scope)
       I18n.available_locales.each_with_object({}) do |locale, segments|
-        result = scoped_translations("#{locale}.#{scope}")
+        scope = [scope] unless scope.respond_to?(:each)
+        result = scoped_translations(scope.collect{|s| "#{locale}.#{s}"})
+        merge_with_fallbacks!(result, locale, scope) if use_fallbacks?
+
         next if result.empty?
 
         segment_name = ::I18n.interpolate(pattern,{:locale => locale})
@@ -63,14 +67,10 @@ module I18n
       end
     end
 
-    def self.export_dir
-      "public/javascripts"
-    end
-
     def self.filtered_translations
       {}.tap do |result|
         translation_segments.each do |filename, translations|
-          deep_merge!(result, translations)
+          Utils.deep_merge!(result, translations)
         end
       end
     end
@@ -79,7 +79,7 @@ module I18n
       if config? && config[:translations]
         configured_segments
       else
-        {"#{export_dir}/translations.js" => translations}
+        {"#{DEFAULT_EXPORT_DIR_PATH}/translations.js" => translations}
       end
     end
 
@@ -87,7 +87,8 @@ module I18n
     # custom output directory
     def self.config
       if config?
-        (YAML.load_file(config_file) || {}).with_indifferent_access
+        erb = ERB.new(File.read(config_file_path)).result
+        (YAML.load(erb) || {}).with_indifferent_access
       else
         {}
       end
@@ -95,7 +96,7 @@ module I18n
 
     # Check if configuration file exist
     def self.config?
-      File.file? config_file
+      File.file? config_file_path
     end
 
     # Convert translations to JSON string and save file.
@@ -103,9 +104,10 @@ module I18n
       FileUtils.mkdir_p File.dirname(file)
 
       File.open(file, "w+") do |f|
-        f << %(I18n.translations = );
-        f << translations.to_json
-        f << %(;)
+        f << %(I18n.translations || (I18n.translations = {});\n)
+        Utils.strip_keys_with_nil_values(translations).each do |locale, translations_for_locale|
+          f << %(I18n.translations["#{locale}"] = #{translations_for_locale.to_json};\n);
+        end
       end
     end
 
@@ -113,7 +115,7 @@ module I18n
       result = {}
 
       [scopes].flatten.each do |scope|
-        deep_merge! result, filter(translations, scope)
+        Utils.deep_merge! result, filter(translations, scope)
       end
 
       result
@@ -132,7 +134,7 @@ module I18n
           results[scope.to_sym] = tmp unless tmp.nil?
         end
         return results
-      elsif translations.has_key?(scope.to_sym)
+      elsif translations.respond_to?(:has_key?) && translations.has_key?(scope.to_sym)
         return {scope.to_sym => scopes.empty? ? translations[scope.to_sym] : filter(translations[scope.to_sym], scopes)}
       end
       nil
@@ -142,16 +144,53 @@ module I18n
     def self.translations
       ::I18n.backend.instance_eval do
         init_translations unless initialized?
-        translations
+        translations.slice(*::I18n.available_locales)
       end
     end
 
-    def self.deep_merge(target, hash) # :nodoc:
-      target.merge(hash, &MERGER)
+    def self.use_fallbacks?
+      fallbacks != false
     end
 
-    def self.deep_merge!(target, hash) # :nodoc:
-      target.merge!(hash, &MERGER)
+    def self.fallbacks
+      config.fetch(:fallbacks) do
+        # default value
+        true
+      end
+    end
+
+    # deep_merge! given result with result for fallback locale
+    def self.merge_with_fallbacks!(result, locale, scope)
+      result[locale] ||= {}
+      fallback_locales = FallbackLocales.new(fallbacks, locale)
+
+      fallback_locales.each do |fallback_locale|
+        fallback_result = scoped_translations(scope.collect{|s| "#{fallback_locale}.#{s}"}) # NOTE: Duplicated code here
+        result[locale] = Utils.deep_merge(fallback_result[fallback_locale], result[locale])
+      end
+    end
+
+
+    ### Export i18n.js
+    begin
+      # Copy i18n.js
+      def self.export_i18n_js
+        return if export_i18n_js_dir_path.nil?
+
+        FileUtils.mkdir_p(export_i18n_js_dir_path)
+
+        i18n_js_path = File.expand_path('../../../app/assets/javascripts/i18n.js', __FILE__)
+        FileUtils.cp(i18n_js_path, export_i18n_js_dir_path)
+      end
+      def self.export_i18n_js_dir_path
+        return @export_i18n_js_dir_path if defined?(@export_i18n_js_dir_path)
+
+        @export_i18n_js_dir_path = DEFAULT_EXPORT_DIR_PATH
+      end
+      # Setting this to nil would disable i18n.js exporting
+      def self.export_i18n_js_dir_path=(new_path)
+        @export_i18n_js_dir_path = new_path
+      end
     end
   end
 end

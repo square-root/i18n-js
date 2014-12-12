@@ -25,4 +25,22 @@ describe("Interpolation", function(){
     expect(I18n.t("inbox", {count: 1})).toEqual("You have 1 message");
     expect(I18n.t("inbox", {count: 5})).toEqual("You have 5 messages");
   });
+
+  it("outputs missing placeholder message if interpolation value is missing", function(){
+    actual = I18n.t("greetings.name");
+    expect(actual).toEqual("Hello [missing {{name}} value]!");
+  });
+
+  it("outputs missing placeholder message if interpolation value is null", function(){
+    actual = I18n.t("greetings.name", {name: null});
+    expect(actual).toEqual("Hello [missing {{name}} value]!");
+  });
+
+  it("allows overriding the null placeholder message", function(){
+    var orig = I18n.nullPlaceholder;
+    I18n.nullPlaceholder = function() {return "";}
+    actual = I18n.t("greetings.name", {name: null});
+    expect(actual).toEqual("Hello !");
+    I18n.nullPlaceholder = orig;
+  });
 });
