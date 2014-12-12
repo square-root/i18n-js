@@ -47,6 +47,10 @@ describe("Dates", function(){
     actual = I18n.parseDate("2011-07-20T12:51:55+0000");
     expect(actual.toString()).toEqual(expected.toString());
 
+    expected = new Date(Date.UTC(2011, 6, 20, 12, 51, 55));
+    actual = I18n.parseDate("2011-07-20T12:51:55+00:00");
+    expect(actual.toString()).toEqual(expected.toString());
+
     expected = new Date(Date.UTC(2011, 6, 20, 13, 03, 39));
     actual = I18n.parseDate("Wed Jul 20 13:03:39 +0000 2011");
     expect(actual.toString()).toEqual(expected.toString());
@@ -54,6 +58,21 @@ describe("Dates", function(){
     expected = new Date(Date.UTC(2009, 0, 24, 15, 33, 44));
     actual = I18n.parseDate("2009-01-24T15:33:44Z");
     expect(actual.toString()).toEqual(expected.toString());
+
+    expected = new Date(Date.UTC(2009, 0, 24, 15, 34, 44, 200));
+    actual = I18n.parseDate("2009-01-24T15:34:44.200Z");
+    expect(actual.toString()).toEqual(expected.toString());
+    expect(actual.getMilliseconds()).toEqual(expected.getMilliseconds())
+
+    expected = new Date(Date.UTC(2009, 0, 24, 15, 34, 45, 200));
+    actual = I18n.parseDate("2009-01-24T15:34:45.200+0000");
+    expect(actual.toString()).toEqual(expected.toString());
+    expect(actual.getMilliseconds()).toEqual(expected.getMilliseconds())
+
+    expected = new Date(Date.UTC(2009, 0, 24, 15, 34, 46, 200));
+    actual = I18n.parseDate("2009-01-24T15:34:46.200+00:00");
+    expect(actual.toString()).toEqual(expected.toString());
+    expect(actual.getMilliseconds()).toEqual(expected.getMilliseconds())
   });
 
   it("formats date", function(){
@@ -214,5 +233,26 @@ describe("Dates", function(){
 
     var date = new Date(2009, 3, 26, 19, 35, 44);
     expect(I18n.strftime(date, "%a")).toEqual("Sun");
+  });
+
+  it("applies locale fallback", function(){
+    I18n.defaultLocale = "en-US";
+    I18n.locale = "de";
+
+    var date = new Date(2009, 3, 26, 19, 35, 44);
+    expect(I18n.strftime(date, "%A")).toEqual("Sonntag");
+
+    date = new Date(2009, 3, 26, 19, 35, 44);
+    expect(I18n.strftime(date, "%a")).toEqual("Sun");
+  });
+
+  it("uses time as the meridian scope", function(){
+    I18n.locale = "de";
+
+    var date = new Date(2009, 3, 26, 19, 35, 44);
+    expect(I18n.strftime(date, "%p")).toEqual("de:PM");
+
+    date = new Date(2009, 3, 26, 7, 35, 44);
+    expect(I18n.strftime(date, "%p")).toEqual("de:AM");
   });
 });

@@ -11,8 +11,25 @@
 //
 // See tests for specific formatting like numbers and dates.
 //
-;(function(I18n){
+
+;(function(factory) {
+  if (typeof module !== 'undefined' && module.exports) {
+    // Node/CommonJS
+    module.exports = factory(this);
+
+  } else if (typeof define === 'function' && define.amd) {
+    // AMD
+    define('i18n', (function(global){ return function(){ return factory(global); }})(this));
+
+  } else {
+    // Browser globals
+    this.I18n = factory(this);
+  }
+}(function(global) {
   "use strict";
+
+  // Use previously defined object if exists in current scope
+  var I18n = global && global.I18n || {};
 
   // Just cache the Array#slice function.
   var slice = Array.prototype.slice;
@@ -23,11 +40,12 @@
   };
 
   // Set default days/months translations.
-  var DAYS_AND_MONTHS = {
+  var DATE = {
       day_names: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
     , abbr_day_names: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     , month_names: [null, "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
     , abbr_month_names: [null, "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    , meridian: ["AM", "PM"]
   };
 
   // Set default number format.
@@ -57,30 +75,59 @@
   // Set default size units.
   var SIZE_UNITS = [null, "kb", "mb", "gb", "tb"];
 
-  // Set meridian.
-  var MERIDIAN = ["AM", "PM"];
+  // Other default options
+  var DEFAULT_OPTIONS = {
+    defaultLocale: "en",
+    locale: "en",
+    defaultSeparator: ".",
+    placeholder: /(?:\{\{|%\{)(.*?)(?:\}\}?)/gm,
+    fallbacks: false,
+    translations: {}
+  };
 
   I18n.reset = function() {
     // Set default locale. This locale will be used when fallback is enabled and
     // the translation doesn't exist in a particular locale.
-    this.defaultLocale = "en";
+    this.defaultLocale = DEFAULT_OPTIONS.defaultLocale;
 
     // Set the current locale to `en`.
-    this.locale = "en";
+    this.locale = DEFAULT_OPTIONS.locale;
 
     // Set the translation key separator.
-    this.defaultSeparator = ".";
+    this.defaultSeparator = DEFAULT_OPTIONS.defaultSeparator;
 
     // Set the placeholder format. Accepts `{{placeholder}}` and `%{placeholder}`.
-    this.placeholder = /(?:\{\{|%\{)(.*?)(?:\}\}?)/gm;
+    this.placeholder = DEFAULT_OPTIONS.placeholder;
 
     // Set if engine should fallback to the default locale when a translation
     // is missing.
-    this.fallbacks = false;
+    this.fallbacks = DEFAULT_OPTIONS.fallbacks;
 
     // Set the default translation object.
-    this.translations = {};
+    this.translations = DEFAULT_OPTIONS.translations;
   };
+
+  // Much like `reset`, but only assign options if not already assigned
+  I18n.initializeOptions = function() {
+    if (typeof(this.defaultLocale) === "undefined" && this.defaultLocale !== null)
+      this.defaultLocale = DEFAULT_OPTIONS.defaultLocale;
+
+    if (typeof(this.locale) === "undefined" && this.locale !== null)
+      this.locale = DEFAULT_OPTIONS.locale;
+
+    if (typeof(this.defaultSeparator) === "undefined" && this.defaultSeparator !== null)
+      this.defaultSeparator = DEFAULT_OPTIONS.defaultSeparator;
+
+    if (typeof(this.placeholder) === "undefined" && this.placeholder !== null)
+      this.placeholder = DEFAULT_OPTIONS.placeholder;
+
+    if (typeof(this.fallbacks) === "undefined" && this.fallbacks !== null)
+      this.fallbacks = DEFAULT_OPTIONS.fallbacks;
+
+    if (typeof(this.translations) === "undefined" && this.translations !== null)
+      this.translations = DEFAULT_OPTIONS.translations;
+  };
+  I18n.initializeOptions();
 
   // Return a list of all locales that must be tried before returning the
   // missing translation message. By default, this will consider the inline option,
@@ -181,10 +228,6 @@
     }
   };
 
-  // Reset all default attributes. This is specially useful
-  // while running tests.
-  I18n.reset();
-
   // Return current locale. If no locale has been set, then
   // the current locale will be the default locale.
   I18n.currentLocale = function() {
@@ -202,12 +245,25 @@
   I18n.lookup = function(scope, options) {
     options = this.prepareOptions(options);
 
-    var locales = this.locales.get(options.locale)
+    var locales = this.locales.get(options.locale).slice()
       , requestedLocale = locales[0]
       , locale
       , scopes
       , translations
     ;
+
+    // Deal with the scope as an array.
+    if (scope.constructor === Array) {
+      scope = scope.join(this.defaultSeparator);
+    }
+
+    // Deal with the scope option provided through the second argument.
+    //
+    //    I18n.t('hello', {scope: 'greetings'});
+    //
+    if (options.scope) {
+      scope = [options.scope, scope].join(this.defaultSeparator);
+    }
 
     while (locales.length) {
       locale = locales.shift();
@@ -233,6 +289,24 @@
 
     if (this.isSet(options.defaultValue)) {
       return options.defaultValue;
+    }
+  };
+
+  // Rails changed the way the meridian is stored.
+  // It started with `date.meridian` returning an array,
+  // then it switched to `time.am` and `time.pm`.
+  // This function abstracts this difference and returns
+  // the correct meridian or the default value when none is provided.
+  I18n.meridian = function() {
+    var time = this.lookup("time");
+    var date = this.lookup("date");
+
+    if (time && time.am && time.pm) {
+      return [time.am, time.pm];
+    } else if (date && date.meridian) {
+      return date.meridian;
+    } else {
+      return DATE.meridian;
     }
   };
 
@@ -271,12 +345,51 @@
     return options;
   };
 
+  // Generate a list of translation options for default fallbacks.
+  // `defaultValue` is also deleted from options as it is returned as part of
+  // the translationOptions array.
+  I18n.createTranslationOptions = function(scope, options) {
+    var translationOptions = [{scope: scope}];
+
+    // Defaults should be an array of hashes containing either
+    // fallback scopes or messages
+    if (this.isSet(options.defaults)) {
+      translationOptions = translationOptions.concat(options.defaults);
+    }
+
+    // Maintain support for defaultValue. Since it is always a message
+    // insert it in to the translation options as such.
+    if (this.isSet(options.defaultValue)) {
+      translationOptions.push({ message: options.defaultValue });
+      delete options.defaultValue;
+    }
+
+    return translationOptions;
+  };
+
   // Translate the given scope with the provided options.
   I18n.translate = function(scope, options) {
     options = this.prepareOptions(options);
-    var translation = this.lookup(scope, options);
 
-    if (translation === undefined || translation === null) {
+    var translationOptions = this.createTranslationOptions(scope, options);
+
+    var translation;
+    // Iterate through the translation options until a translation
+    // or message is found.
+    var translationFound =
+      translationOptions.some(function(translationOption) {
+        if (this.isSet(translationOption.scope)) {
+          translation = this.lookup(translationOption.scope, options);
+        } else if (this.isSet(translationOption.message)) {
+          translation = translationOption.message;
+        }
+
+        if (translation !== undefined && translation !== null) {
+          return true;
+        }
+      }, this);
+
+    if (!translationFound) {
       return this.missingTranslation(scope);
     }
 
@@ -303,20 +416,25 @@
       return message;
     }
 
+    var value;
+
     while (matches.length) {
       placeholder = matches.shift();
       name = placeholder.replace(this.placeholder, "$1");
-      value = options[name];
 
-      if (!this.isSet(options[name])) {
-        value = "[missing " + placeholder + " value]";
+      if (this.isSet(options[name])) {
+        value = options[name].toString().replace(/\$/gm, "_#$#_");
+      } else if (name in options) {
+        value = this.nullPlaceholder(placeholder, message);
+      } else {
+        value = this.missingPlaceholder(placeholder, message);
       }
 
       regex = new RegExp(placeholder.replace(/\{/gm, "\\{").replace(/\}/gm, "\\}"));
       message = message.replace(regex, value);
     }
 
-    return message;
+    return message.replace(/_#\$#_/g, "$");
   };
 
   // Pluralize the given scope using the `count` value.
@@ -337,7 +455,7 @@
     }
 
     pluralizer = this.pluralization.get(options.locale);
-    keys = pluralizer(Math.abs(count));
+    keys = pluralizer(count);
 
     while (keys.length) {
       key = keys.shift();
@@ -361,6 +479,15 @@
     message += '" translation]';
 
     return message;
+  };
+
+  // Return a missing placeholder message for given parameters
+  I18n.missingPlaceholder = function(placeholder, message) {
+    return "[missing " + placeholder + " value]";
+  };
+
+  I18n.nullPlaceholder = function() {
+    return I18n.missingPlaceholder.apply(I18n, arguments);
   };
 
   // Format number using localization rules.
@@ -453,7 +580,9 @@
   //
   // It will default to the value's `toString` function.
   //
-  I18n.localize = function(scope, value) {
+  I18n.localize = function(scope, value, options) {
+    options || (options = {});
+
     switch (scope) {
       case "currency":
         return this.toCurrency(value);
@@ -463,11 +592,15 @@
       case "percentage":
         return this.toPercentage(value);
       default:
+        var localizedValue;
+
         if (scope.match(/^(date|time)/)) {
-          return this.toTime(scope, value);
+          localizedValue = this.toTime(scope, value);
         } else {
-          return value.toString();
+          localizedValue = value.toString();
         }
+
+        return this.interpolate(localizedValue, options);
     }
   };
 
@@ -481,16 +614,17 @@
   //    yyyy-mm-dd[ T]hh:mm::ss
   //    yyyy-mm-dd[ T]hh:mm::ssZ
   //    yyyy-mm-dd[ T]hh:mm::ss+0000
+  //    yyyy-mm-dd[ T]hh:mm::ss+00:00
+  //    yyyy-mm-dd[ T]hh:mm::ss.123Z
   //
   I18n.parseDate = function(date) {
-    var matches, convertedDate;
-
+    var matches, convertedDate, fraction;
     // we have a date, so just return it.
     if (typeof(date) == "object") {
       return date;
     };
 
-    matches = date.toString().match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}):(\d{2}))?(Z|\+0000)?/);
+    matches = date.toString().match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}):(\d{2})([\.,]\d{1,3})?)?(Z|\+00:?00)?/);
 
     if (matches) {
       for (var i = 1; i <= 6; i++) {
@@ -500,19 +634,28 @@
       // month starts on 0
       matches[2] -= 1;
 
-      if (matches[7]) {
-        convertedDate = new Date(Date.UTC(matches[1], matches[2], matches[3], matches[4], matches[5], matches[6]));
+      fraction = matches[7] ? 1000 * ("0" + matches[7]) : null;
+
+      if (matches[8]) {
+        convertedDate = new Date(Date.UTC(matches[1], matches[2], matches[3], matches[4], matches[5], matches[6], fraction));
       } else {
-        convertedDate = new Date(matches[1], matches[2], matches[3], matches[4], matches[5], matches[6]);
+        convertedDate = new Date(matches[1], matches[2], matches[3], matches[4], matches[5], matches[6], fraction);
       }
     } else if (typeof(date) == "number") {
       // UNIX timestamp
       convertedDate = new Date();
       convertedDate.setTime(date);
+    } else if (date.match(/([A-Z][a-z]{2}) ([A-Z][a-z]{2}) (\d+) (\d+:\d+:\d+) ([+-]\d+) (\d+)/)) {
+      // This format `Wed Jul 20 13:03:39 +0000 2011` is parsed by
+      // webkit/firefox, but not by IE, so we must parse it manually.
+      convertedDate = new Date();
+      convertedDate.setTime(Date.parse([
+        RegExp.$1, RegExp.$2, RegExp.$3, RegExp.$6, RegExp.$4, RegExp.$5
+      ].join(" ")));
     } else if (date.match(/\d+ \d+:\d+:\d+ [+-]\d+ \d+/)) {
       // a valid javascript format with timezone info
       convertedDate = new Date();
-      convertedDate.setTime(Date.parse(date))
+      convertedDate.setTime(Date.parse(date));
     } else {
       // an arbitrary javascript string
       convertedDate = new Date();
@@ -553,15 +696,15 @@
   //     %z  - Timezone offset (+0545)
   //
   I18n.strftime = function(date, format) {
-    var options = this.lookup("date");
+    var options = this.lookup("date")
+      , meridianOptions = I18n.meridian()
+    ;
 
     if (!options) {
-      options = DAYS_AND_MONTHS;
+      options = {};
     }
 
-    if (!options.meridian) {
-      options.meridian = MERIDIAN;
-    }
+    options = this.prepareOptions(options, DATE);
 
     var weekDay = date.getDay()
       , day = date.getDate()
@@ -575,7 +718,9 @@
       , offset = date.getTimezoneOffset()
       , absOffsetHours = Math.floor(Math.abs(offset / 60))
       , absOffsetMinutes = Math.abs(offset) - (absOffsetHours * 60)
-      , timezoneoffset = (offset > 0 ? "-" : "+") + (absOffsetHours.toString().length < 2 ? "0" + absOffsetHours : absOffsetHours) + (absOffsetMinutes.toString().length < 2 ? "0" + absOffsetMinutes : absOffsetMinutes)
+      , timezoneoffset = (offset > 0 ? "-" : "+") +
+          (absOffsetHours.toString().length < 2 ? "0" + absOffsetHours : absOffsetHours) +
+          (absOffsetMinutes.toString().length < 2 ? "0" + absOffsetMinutes : absOffsetMinutes)
     ;
 
     if (hour12 > 12) {
@@ -599,7 +744,7 @@
     format = format.replace("%-m", month);
     format = format.replace("%M", padding(mins));
     format = format.replace("%-M", mins);
-    format = format.replace("%p", options.meridian[meridian]);
+    format = format.replace("%p", meridianOptions[meridian]);
     format = format.replace("%S", padding(secs));
     format = format.replace("%-S", secs);
     format = format.replace("%w", weekDay);
@@ -681,4 +826,6 @@
   I18n.t = I18n.translate;
   I18n.l = I18n.localize;
   I18n.p = I18n.pluralize;
-})(typeof(exports) === "undefined" ? (this.I18n = {}) : exports);
+
+  return I18n;
+}));

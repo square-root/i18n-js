@@ -1,9 +1,14 @@
+var DEBUG = false;
+
 ;(function(){
   var generator = function() {
     var Translations = {};
 
     Translations.en = {
         hello: "Hello World!"
+      , paid: "You were paid %{price}"
+
+      , paid_with_vat: "You were paid %{price} (incl. VAT %{vat})"
 
       , booleans: {
           yes: true,
@@ -83,6 +88,7 @@
               "default": "%d/%m/%Y"
             , "short": "%d de %B"
             , "long": "%d de %B de %Y"
+            , "short_with_placeholders": "%d de %B {{p1}} {{p2}}"
           }
           , day_names: ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"]
           , abbr_day_names: ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
@@ -95,6 +101,7 @@
                 "default": "%A, %d de %B de %Y, %H:%M h"
               , "short": "%d/%m, %H:%M h"
               , "long": "%A, %d de %B de %Y, %H:%M h"
+              , "short_with_placeholders": "%d/%m, %H:%M h {{p1}}"
             }
           , am: "AM"
           , pm: "PM"
@@ -102,7 +109,15 @@
     };
 
     Translations["de"] = {
-      hello: "Hallo Welt!"
+        hello: "Hallo Welt!"
+      , date: {
+          day_names: ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"]
+        }
+
+      , time: {
+            am: "de:AM"
+          , pm: "de:PM"
+        }
     };
 
     Translations["nb"] = {

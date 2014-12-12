@@ -34,6 +34,11 @@ en:
       note: "more details"
     edit:
       title: "Edit"
+  foo: "Foo"
+  fallback_test: "Success"
+
+de:
+  fallback_test: "Erfolg"
 
 fr:
   date:
@@ -74,3 +79,8 @@ fr:
       note: "plus de détails"
     edit:
       title: "Editer"
+
+ja:
+  admin:
+    show:
+      title: "Ignore me"

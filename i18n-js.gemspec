@@ -11,15 +11,20 @@ Gem::Specification.new do |s|
   s.homepage    = "http://rubygems.org/gems/i18n-js"
   s.summary     = "It's a small library to provide the Rails I18n translations on the Javascript."
   s.description = s.summary
+  s.license       = "MIT"
 
   s.files         = `git ls-files`.split("\n")
   s.test_files    = `git ls-files -- {test,spec,features}/*`.split("\n")
   s.executables   = `git ls-files -- bin/*`.split("\n").map{ |f| File.basename(f) }
   s.require_paths = ["lib"]
 
-  s.add_dependency "i18n"
-  s.add_development_dependency "activesupport"
-  s.add_development_dependency "rspec"
+  s.add_dependency "i18n", "~> 0.6"
+  s.add_development_dependency "appraisal", "~> 1.0"
+  s.add_development_dependency "activesupport", ">= 3"
+  s.add_development_dependency "rspec", "~> 3.0"
   s.add_development_dependency "rake"
   s.add_development_dependency "pry-meta"
+  s.add_development_dependency "gem-release", ">= 0.7"
+
+  s.required_ruby_version = ">= 1.9.3"
 end
